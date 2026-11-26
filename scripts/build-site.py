@@ -12,7 +12,7 @@ OUT = Path(sys.argv[1]).resolve()
 VERSION = sys.argv[2]
 BUILT_DATE = sys.argv[3]
 EN_DIR = Path(sys.argv[4]).resolve() if len(sys.argv) > 4 else None
-SITE_TITLE = "Справочник по английскому языку: трудные темы"
+SITE_TITLE = "Справочник по английскому языку: грамматика и живая речь"
 SHORT_TITLE = "Справочник по английскому языку"
 
 
@@ -214,7 +214,7 @@ def main() -> None:
     toc = grouped_list(sections, None, "start-list")
     body = f"""{THEME}
 <div class="start">
-<h1>{SHORT_TITLE}<span class="subtitle">Трудные темы</span></h1>
+<h1>{SHORT_TITLE}<span class="subtitle">Грамматика и живая речь</span></h1>
 {header}
 <h2 class="start-toc">Разделы</h2>
 {toc}
