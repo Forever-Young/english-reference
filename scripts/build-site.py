@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build the multi-page site: start page, one page per section, and all.html."""
 import html
+import json
 import os
 import re
 import subprocess
@@ -107,7 +108,7 @@ def grouped_list(sections, current: int | None, cls: str) -> str:
 def sidebar(sections, current: int | None) -> str:
     return f"""<nav id="sidebar" aria-label="Оглавление">
 <div class="side-top">
-<a href="index.html"{' aria-current="page"' if current is None else ''}>Начало</a>
+<a href="./"{' aria-current="page"' if current is None else ''}>Начало</a>
 <a href="all.html">Одной страницей</a>
 </div>
 <div id="search"></div>
@@ -117,29 +118,78 @@ def sidebar(sections, current: int | None) -> str:
 </nav>"""
 
 
+def pagefind_init(extra: str = "") -> str:
+    """JS that creates the Pagefind UI in #search (Russian interface)."""
+    return ("new PagefindUI({ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-en/', document.baseURI).pathname, language: 'en' }], showImages: false, showSubResults: true, resetStyles: false," + extra + """
+      translations: { placeholder: 'Поиск', clear_search: 'Очистить', load_more: 'Ещё результаты',
+        search_label: 'Поиск по справочнику', filters_label: 'Фильтры', zero_results: 'Ничего не найдено: [SEARCH_TERM]',
+        many_results: '[COUNT] результатов: [SEARCH_TERM]', one_result: '[COUNT] результат: [SEARCH_TERM]',
+        alt_search: 'Ничего не найдено по [SEARCH_TERM]. Показаны результаты по [DIFFERENT_TERM]',
+        search_suggestion: 'Ничего не найдено по [SEARCH_TERM]. Попробуйте:', searching: 'Ищу [SEARCH_TERM]…' } });""")
+
+
 SIDE_JS = """<script src="pagefind/pagefind-ui.js" onerror="void 0"></script>
 <script>
 (function () {
   var b = document.body;
   var btn = document.querySelector('.menu-btn');
-  btn.addEventListener('click', function () { b.classList.toggle('nav-open'); });
-  document.querySelector('.scrim').addEventListener('click', function () { b.classList.remove('nav-open'); });
+  var scrim = document.querySelector('.scrim');
+  if (btn) btn.addEventListener('click', function () { b.classList.toggle('nav-open'); });
+  if (scrim) scrim.addEventListener('click', function () { b.classList.remove('nav-open'); });
   var cur = document.querySelector('#sidebar [aria-current="page"]');
-  var side = document.getElementById('sidebar');
+  var side = document.getElementById('sidebar') || document.querySelector('.start');
   var sc = document.querySelector('.toc-scroll');
-  if (cur && cur.closest('.toc-list')) sc.scrollTop = Math.max(0, cur.offsetTop - sc.clientHeight / 3);
-  if (window.PagefindUI) {
-    new PagefindUI({ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-en/', document.baseURI).pathname, language: 'en' }], showImages: false, showSubResults: true, resetStyles: false,
-      translations: { placeholder: 'Поиск', clear_search: 'Очистить', load_more: 'Ещё результаты',
-        search_label: 'Поиск по справочнику', filters_label: 'Фильтры', zero_results: 'Ничего не найдено: [SEARCH_TERM]',
-        many_results: '[COUNT] результатов: [SEARCH_TERM]', one_result: '[COUNT] результат: [SEARCH_TERM]',
-        alt_search: 'Ничего не найдено по [SEARCH_TERM]. Показаны результаты по [DIFFERENT_TERM]',
-        search_suggestion: 'Ничего не найдено по [SEARCH_TERM]. Попробуйте:', searching: 'Ищу [SEARCH_TERM]…' } });
-    var inp = document.querySelector('#search input');
-    if (inp) inp.addEventListener('input', function () { side.classList.toggle('searching', inp.value.trim() !== ''); });
-  } else {
-    var s = document.getElementById('search'); if (s) s.remove();
+  if (cur && sc && cur.closest('.toc-list')) sc.scrollTop = Math.max(0, cur.offsetTop - sc.clientHeight / 3);
+  var box = document.getElementById('search');
+  if (box && window.PagefindUI) {
+    """ + pagefind_init() + """
+    var inp = box.querySelector('input');
+    var upd = function () { if (side && inp) side.classList.toggle('searching', inp.value.trim() !== ''); };
+    if (inp) inp.addEventListener('input', upd);
+    box.addEventListener('click', function () { setTimeout(upd, 0); });
+  } else if (box) {
+    box.remove();
   }
+})();
+</script>"""
+
+
+def all_js(page_ids: dict) -> str:
+    ids = json.dumps(page_ids, ensure_ascii=False)
+    return """<script src="pagefind/pagefind-ui.js" onerror="void 0"></script>
+<script>
+(function () {
+  var box = document.getElementById('search');
+  if (!box || !window.PagefindUI) { if (box) box.closest('.all-search').remove(); return; }
+  var ids = """ + ids + """;
+  function fix(u) {
+    var path = u.split('#')[0], frag = u.indexOf('#') >= 0 ? u.slice(u.indexOf('#') + 1) : '';
+    var file = path.split('/').pop();
+    return 'all.html#' + (frag || ids[file] || '');
+  }
+  """ + pagefind_init("""
+    processResult: function (r) {
+      r.url = fix(r.url);
+      (r.sub_results || []).forEach(function (s) { s.url = fix(s.url); });
+      return r;
+    },""") + """
+  var wrap = box.closest('.all-search');
+  var inp = box.querySelector('input');
+  var saved = 0;
+  function collapse() {
+    if (!wrap.classList.contains('collapsed')) { saved = box.scrollTop; wrap.classList.add('collapsed'); }
+  }
+  function expand(top) { wrap.classList.remove('collapsed'); box.scrollTop = top; }
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t.closest) return;
+    if (t.closest('.pagefind-ui__search-clear')) { expand(0); return; }
+    if (!wrap.contains(t) || t.closest('.pagefind-ui__result-link')) collapse();
+  });
+  wrap.addEventListener('focusin', function (e) {
+    if (e.target === inp) expand(saved);
+  });
+  if (inp) inp.addEventListener('input', function () { expand(0); });
 })();
 </script>"""
 
@@ -159,7 +209,7 @@ def section_page(sections, idx: int, fragment: str) -> str:
 <div class="layout">
 {sidebar(sections, n)}
 <main data-pagefind-body>
-<p class="crumbs"><a href="index.html">{SHORT_TITLE}</a> · {html.escape(part)}</p>
+<p class="crumbs"><a href="./">{SHORT_TITLE}</a> · {html.escape(part)}</p>
 {fragment}
 <nav class="pager" aria-label="Соседние разделы">{prev_link}{next_link}</nav>
 </main>
@@ -216,16 +266,26 @@ def main() -> None:
 <div class="start">
 <h1>{SHORT_TITLE}<span class="subtitle">Грамматика и живая речь</span></h1>
 {header}
+<div id="search"></div>
 <h2 class="start-toc">Разделы</h2>
 {toc}
-</div>"""
+</div>
+{SIDE_JS}"""
     (OUT / "index.html").write_text(document(SITE_TITLE, body, "start-page"), encoding="utf-8")
 
-    # everything on one page
+    # everything on one page; search results point inside it: file -> first h2 id
+    page_ids = {}
+    for (_, n, _, _), frag in zip(sections, fragments):
+        m = re.search(r'<h2\b[^>]*\bid="([^"]+)"', frag)
+        if not m:
+            raise SystemExit(f"Section {n} has no h2 id")
+        page_ids[page_name(n)] = m.group(1)
     whole = pandoc(text, lua=True)
     body = f"""{THEME}
-<p class="crumbs noprint"><a href="index.html">← На главную</a></p>
-{whole}"""
+<p class="crumbs noprint"><a href="./">← На главную</a></p>
+<div class="noprint all-search"><div id="search"></div></div>
+{whole}
+{all_js(page_ids)}"""
     (OUT / "all.html").write_text(
         document(f"{SITE_TITLE} (одной страницей)", body, "all-page"), encoding="utf-8")
     print(f"Created {len(sections)} section pages, index.html and all.html in {OUT}")
