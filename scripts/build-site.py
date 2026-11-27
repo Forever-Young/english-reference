@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Build the multi-page site: start page, one page per section, and all.html."""
+import hashlib
 import html
 import json
 import os
@@ -15,6 +16,8 @@ BUILT_DATE = sys.argv[3]
 EN_DIR = Path(sys.argv[4]).resolve() if len(sys.argv) > 4 else None
 SITE_TITLE = "Справочник по английскому языку: грамматика и живая речь"
 SHORT_TITLE = "Справочник по английскому языку"
+# Version of everything that affects looks and the search index; used to bust caches.
+ASSET_V = hashlib.sha1(b"".join((ROOT / f).read_bytes() for f in ("site.css", "reference.md", "scripts/build-site.py"))).hexdigest()[:8]
 
 
 def pandoc(md: str, lua: bool = False) -> str:
@@ -80,14 +83,14 @@ def document(title: str, body: str, css_class: str = "") -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title>
-<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="site.css?v={ASSET_V}">
 {HEAD}
 </head>
 <body class="{css_class}">
 {body}
 </body>
 </html>
-"""
+""".replace("@V@", ASSET_V)
 
 
 def grouped_list(sections, current: int | None, cls: str) -> str:
@@ -120,7 +123,7 @@ def sidebar(sections, current: int | None) -> str:
 
 def pagefind_init(extra: str = "") -> str:
     """JS that creates the Pagefind UI in #search (Russian interface)."""
-    return ("new PagefindUI({ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-en/', document.baseURI).pathname, language: 'en' }], showImages: false, showSubResults: true, resetStyles: false," + extra + """
+    return ("new PagefindUI({ element: '#search', mergeIndex: [{ bundlePath: new URL('pagefind-en-@V@/', document.baseURI).pathname, language: 'en' }], showImages: false, showSubResults: true, resetStyles: false," + extra + """
       translations: { placeholder: 'Поиск', clear_search: 'Очистить', load_more: 'Ещё результаты',
         search_label: 'Поиск по справочнику', filters_label: 'Фильтры', zero_results: 'Ничего не найдено: [SEARCH_TERM]',
         many_results: '[COUNT] результатов: [SEARCH_TERM]', one_result: '[COUNT] результат: [SEARCH_TERM]',
@@ -128,7 +131,7 @@ def pagefind_init(extra: str = "") -> str:
         search_suggestion: 'Ничего не найдено по [SEARCH_TERM]. Попробуйте:', searching: 'Ищу [SEARCH_TERM]…' } });""")
 
 
-SIDE_JS = """<script src="pagefind/pagefind-ui.js" onerror="void 0"></script>
+SIDE_JS = """<script src="pagefind-@V@/pagefind-ui.js" onerror="void 0"></script>
 <script>
 (function () {
   var b = document.body;
@@ -156,7 +159,7 @@ SIDE_JS = """<script src="pagefind/pagefind-ui.js" onerror="void 0"></script>
 
 def all_js(page_ids: dict) -> str:
     ids = json.dumps(page_ids, ensure_ascii=False)
-    return """<script src="pagefind/pagefind-ui.js" onerror="void 0"></script>
+    return """<script src="pagefind-@V@/pagefind-ui.js" onerror="void 0"></script>
 <script>
 (function () {
   var box = document.getElementById('search');
@@ -288,6 +291,7 @@ def main() -> None:
 {all_js(page_ids)}"""
     (OUT / "all.html").write_text(
         document(f"{SITE_TITLE} (одной страницей)", body, "all-page"), encoding="utf-8")
+    (OUT / ".asset-v").write_text(ASSET_V)
     print(f"Created {len(sections)} section pages, index.html and all.html in {OUT}")
 
 

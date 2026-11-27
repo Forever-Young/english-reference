@@ -21,11 +21,13 @@ cp "$ROOT/favicon.svg" "$ROOT/favicon-48.png" "$ROOT/apple-touch-icon.png" "$OUT
 EN_DIR="$(mktemp -d)"
 trap 'rm -rf "$EN_DIR"' EXIT
 python3 "$ROOT/scripts/build-site.py" "$OUTDIR" "$VERSION" "$BUILT_DATE" "$EN_DIR"
+V="$(cat "$OUTDIR/.asset-v")"
+rm -f "$OUTDIR/.asset-v"
 
 # Full-text search index (Pagefind). Optional: without it the search box is hidden.
 if command -v npx >/dev/null 2>&1; then
-  npx --yes pagefind@1.3.0 --site "$OUTDIR" --force-language ru \
-    && npx --yes pagefind@1.3.0 --site "$EN_DIR" --output-path "$OUTDIR/pagefind-en" --force-language en \
+  npx --yes pagefind@1.3.0 --site "$OUTDIR" --output-path "$OUTDIR/pagefind-$V" --force-language ru \
+    && npx --yes pagefind@1.3.0 --site "$EN_DIR" --output-path "$OUTDIR/pagefind-en-$V" --force-language en \
     || echo "Pagefind failed; the site works without search." >&2
 else
   echo "npx not found; skipping the search index." >&2
